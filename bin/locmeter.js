@@ -101,6 +101,10 @@ const MONTHS = {
   12: "DEC"
 };
 
+function logStep(message) {
+  process.stderr.write(`${message}\n`);
+}
+
 function parseArgs(argv) {
   const args = {
     bucket: "week",
@@ -695,7 +699,9 @@ async function main() {
   const output = path.resolve(args.output);
   const jsonOutput = path.resolve(args.jsonOutput);
 
+  logStep("Resolving GitHub identity...");
   const login = await getLogin();
+  logStep(`Fetching contributed repositories for ${login}...`);
   const repoNames = await getRepositories(login);
   const { resolved: repoPaths, missing, root } = resolveRepoPathsFromCandidates(repoNames, args.root);
 
@@ -709,12 +715,14 @@ async function main() {
   let authorNames = [...new Set(args.authorName)];
 
   if (!authorEmails.length && !authorNames.length) {
+    logStep(`Detecting author identity from ${repoPaths.length} local repos under ${root}...`);
     const detected = await autodetectAuthorIdentities(repoPaths, login);
     authorEmails = detected.emails;
     authorNames = detected.names;
   }
 
   if (!authorEmails.length && !authorNames.length) {
+    logStep("Falling back to global git identity...");
     const detected = await gitConfigIdentity();
     authorEmails = detected.emails;
     authorNames = [...new Set([login, ...detected.names])];
@@ -724,6 +732,7 @@ async function main() {
     throw new Error("could not auto-detect your author identity; pass --author-email or --author-name");
   }
 
+  logStep(`Fetching commits from ${repoPaths.length} repos...`);
   const { series, rawDaily } = await aggregate(
     repoPaths,
     startDate,
@@ -733,6 +742,7 @@ async function main() {
     authorNames
   );
 
+  logStep(`Crunching numbers for ${args.bucket} buckets from ${dateIso(startDate)} to ${dateIso(endDate)}...`);
   renderChart(series, login, startDate, endDate, args.bucket, output);
 
   const values = Object.values(series);
@@ -759,6 +769,9 @@ async function main() {
     )
   );
 
+  logStep("Created output files:");
+  logStep(`  PNG: ${output}`);
+  logStep(`  JSON: ${jsonOutput}`);
   process.stdout.write(`${output}\n${jsonOutput}\n`);
 }
 
