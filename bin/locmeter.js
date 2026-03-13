@@ -723,7 +723,7 @@ function formatCompact(value) {
 }
 
 function formatGrouped(value) {
-  return new Intl.NumberFormat("de-AT").format(value);
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 function xLabel(date, bucket) {

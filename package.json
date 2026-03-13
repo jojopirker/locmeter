@@ -1,6 +1,6 @@
 {
   "name": "locmeter",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Render a PNG chart of lines changed over time from your GitHub contribution repos.",
   "license": "MIT",
   "preferGlobal": true,
