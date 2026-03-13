@@ -108,6 +108,7 @@ function logStep(message) {
 function parseArgs(argv) {
   const args = {
     bucket: "week",
+    searchDepth: 3,
     authorEmail: [],
     authorName: [],
     output: "github-lines-changed.png",
@@ -129,6 +130,7 @@ function parseArgs(argv) {
     else if (arg === "--to") args.toDate = next();
     else if (arg === "--bucket") args.bucket = next();
     else if (arg === "--root") args.root = next();
+    else if (arg === "--search-depth") args.searchDepth = Number(next());
     else if (arg === "--author-email") args.authorEmail.push(next());
     else if (arg === "--author-name") args.authorName.push(next());
     else if (arg === "--output") args.output = next();
@@ -147,6 +149,9 @@ function parseArgs(argv) {
   if (args.days !== undefined && (!Number.isInteger(args.days) || args.days <= 0)) {
     throw new Error("--days must be a positive integer");
   }
+  if (!Number.isInteger(args.searchDepth) || args.searchDepth < 0) {
+    throw new Error("--search-depth must be a non-negative integer");
+  }
 
   return args;
 }
@@ -161,6 +166,7 @@ function printHelp() {
       "  --to today",
       "  --from one year before --to",
       "  --author-email/--author-name auto-detected from current gh login",
+      "  --search-depth 3",
       "",
       "Options:",
       "  --days N",
@@ -168,6 +174,7 @@ function printHelp() {
       "  --to YYYY-MM-DD",
       "  --bucket day|week|month",
       "  --root /path/to/repos",
+      "  --search-depth N",
       "  --author-email you@example.com",
       "  --author-name yourname",
       "  --output chart.png",
@@ -277,6 +284,63 @@ function resolveRepoPaths(repoNames, root) {
   return { resolved, missing };
 }
 
+function normalizeGitHubRemote(remote) {
+  return remote
+    .trim()
+    .replace(/^git\+/, "")
+    .replace(/^git@github\.com:/, "https://github.com/")
+    .replace(/^ssh:\/\/git@github\.com\//, "https://github.com/")
+    .replace(/\.git$/, "")
+    .toLowerCase();
+}
+
+function remoteToRepoKey(remote) {
+  const normalized = normalizeGitHubRemote(remote);
+  const marker = "github.com/";
+  const idx = normalized.indexOf(marker);
+  if (idx === -1) return null;
+  return normalized.slice(idx + marker.length);
+}
+
+function scanForGitRepos(root, maxDepth) {
+  const found = [];
+  const skip = new Set(["node_modules", ".git", ".next", "dist", "build"]);
+
+  function walk(current, depth) {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (error) {
+      return;
+    }
+
+    if (entries.some((entry) => entry.name === ".git")) {
+      found.push(current);
+      return;
+    }
+    if (depth >= maxDepth) return;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (skip.has(entry.name)) continue;
+      walk(path.join(current, entry.name), depth + 1);
+    }
+  }
+
+  walk(root, 0);
+  return found;
+}
+
+async function gitRemoteUrls(repoPath) {
+  const output = await tryRunText("git", ["remote", "-v"], repoPath);
+  const urls = new Set();
+  for (const line of output.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length >= 2) urls.add(parts[1]);
+  }
+  return [...urls];
+}
+
 function candidateRoots(explicitRoot) {
   if (explicitRoot) return [path.resolve(explicitRoot)];
   const home = os.homedir();
@@ -290,17 +354,67 @@ function candidateRoots(explicitRoot) {
   return [...new Set(values.map((value) => path.resolve(value)))];
 }
 
-function resolveRepoPathsFromCandidates(repoNames, explicitRoot) {
+async function resolveRepoPathsFromCandidates(repoNames, explicitRoot, searchDepth) {
   const candidates = candidateRoots(explicitRoot);
-  let best = { resolved: [], missing: repoNames, root: candidates[0] };
+  let best = {
+    resolved: [],
+    missing: repoNames,
+    root: candidates[0],
+    searchedRoots: candidates,
+    discoveredRepos: []
+  };
+  const repoKeys = new Set(repoNames.map((value) => value.toLowerCase()));
+
   for (const root of candidates) {
     const result = resolveRepoPaths(repoNames, root);
     if (result.resolved.length > best.resolved.length) {
-      best = { ...result, root };
+      best = { ...result, root, searchedRoots: candidates, discoveredRepos: result.resolved.map(([, p]) => p) };
     }
-    if (result.resolved.length === repoNames.length) return { ...result, root };
+    if (result.resolved.length === repoNames.length) return { ...result, root, searchedRoots: candidates, discoveredRepos: result.resolved.map(([, p]) => p) };
+
+    const discovered = scanForGitRepos(root, searchDepth);
+    const matched = [];
+    for (const repoPath of discovered) {
+      const remoteUrls = await gitRemoteUrls(repoPath);
+      const remoteKeys = remoteUrls.map(remoteToRepoKey).filter(Boolean);
+      const base = path.basename(repoPath).toLowerCase();
+
+      for (const nameWithOwner of repoNames) {
+        const repoKey = nameWithOwner.toLowerCase();
+        const repoName = repoKey.split("/")[1];
+        if (remoteKeys.includes(repoKey) || base === repoName) {
+          matched.push([nameWithOwner, repoPath]);
+          break;
+        }
+      }
+    }
+
+    const deduped = new Map(matched.map(([name, repoPath]) => [name, [name, repoPath]]));
+    const resolved = [...deduped.values()];
+    const missing = repoNames.filter((name) => !deduped.has(name));
+    if (resolved.length > best.resolved.length) {
+      best = { resolved, missing, root, searchedRoots: candidates, discoveredRepos: discovered };
+    }
+    if (resolved.length === repoKeys.size) {
+      return { resolved, missing, root, searchedRoots: candidates, discoveredRepos: discovered };
+    }
   }
   return best;
+}
+
+function noReposError(result, explicitRoot, searchDepth) {
+  const searched = result.searchedRoots.map((root) => `- ${root}`).join("\n");
+  const rootHint = explicitRoot ? `Try increasing --search-depth from ${searchDepth} or point --root at the directory containing your repo clones.` : "Try running from your main projects folder or pass --root to the directory that contains your repo clones.";
+  return [
+    "Could not match any contributed GitHub repos locally.",
+    `Searched these roots (depth ${searchDepth}):`,
+    searched,
+    "",
+    rootHint,
+    "Examples:",
+    "- npx locmeter --root ~/Developer",
+    "- npx locmeter --root ~/Projects --search-depth 5"
+  ].join("\n");
 }
 
 async function autodetectAuthorIdentities(repoPaths, login) {
@@ -703,12 +817,14 @@ async function main() {
   const login = await getLogin();
   logStep(`Fetching contributed repositories for ${login}...`);
   const repoNames = await getRepositories(login);
-  const { resolved: repoPaths, missing, root } = resolveRepoPathsFromCandidates(repoNames, args.root);
+  const { resolved: repoPaths, missing, root, searchedRoots } = await resolveRepoPathsFromCandidates(
+    repoNames,
+    args.root,
+    args.searchDepth
+  );
 
   if (!repoPaths.length) {
-    throw new Error(
-      `could not find any locally cloned contributed repos under ${root}; pass --root to the directory that contains your repo clones`
-    );
+    throw new Error(noReposError({ searchedRoots }, args.root, args.searchDepth));
   }
 
   let authorEmails = [...new Set(args.authorEmail)];
@@ -757,6 +873,7 @@ async function main() {
         author_emails: authorEmails,
         author_names: authorNames,
         root_used: root,
+        searched_roots: searchedRoots,
         local_repositories_used: repoPaths.map(([name]) => name),
         missing_repositories: missing,
         total_lines_changed: values.reduce((sum, value) => sum + value, 0),

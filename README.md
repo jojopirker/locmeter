@@ -45,11 +45,13 @@ Common options:
 - default `--from`: one year before `--to`
 - default author identity: auto-detected from your current `gh` login
 - default repo root: current directory, then common roots like `~/Developer`, `~/Code`, `~/Projects`
+- default search depth: `3`
 - `--from YYYY-MM-DD`
 - `--to YYYY-MM-DD`
 - `--days N`
 - `--bucket day|week|month`
 - `--root /path/to/repos`
+- `--search-depth N`
 - `--author-email you@example.com`
 - `--author-name yourname`
 - `--output chart.png`
