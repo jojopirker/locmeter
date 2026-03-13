@@ -67,6 +67,8 @@ That example produced:
 - total lines changed: `1,059,347`
 - peak week: `207,431`
 
+![Example locmeter output](./examples/jojo-weekly.png)
+
 The CLI prints the generated PNG path and JSON path on success.
 
 ## Notes
