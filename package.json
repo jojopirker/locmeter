@@ -1,0 +1,35 @@
+{
+  "name": "locmeter",
+  "version": "0.1.0",
+  "description": "Render a PNG chart of lines changed over time from your GitHub contribution repos.",
+  "license": "MIT",
+  "preferGlobal": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jojopirker/locmeter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jojopirker/locmeter/issues"
+  },
+  "bin": {
+    "locmeter": "./bin/locmeter.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "examples/jojo-weekly.png"
+  ],
+  "keywords": [
+    "cli",
+    "git",
+    "github",
+    "loc",
+    "png"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check": "node --check ./bin/locmeter.js"
+  }
+}

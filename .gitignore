@@ -1,0 +1,6 @@
+node_modules/
+*.png
+*.json
+!package.json
+!examples/
+!examples/jojo-weekly.png
