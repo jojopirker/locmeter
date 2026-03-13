@@ -104,7 +104,6 @@ const MONTHS = {
 function parseArgs(argv) {
   const args = {
     bucket: "week",
-    root: process.cwd(),
     authorEmail: [],
     authorName: [],
     output: "github-lines-changed.png",
@@ -227,6 +226,14 @@ async function runText(command, args, cwd) {
   return stdout;
 }
 
+async function tryRunText(command, args, cwd) {
+  try {
+    return await runText(command, args, cwd);
+  } catch (error) {
+    return "";
+  }
+}
+
 async function getLogin() {
   const user = await runJson("gh", ["api", "user"]);
   return user.login;
@@ -266,6 +273,32 @@ function resolveRepoPaths(repoNames, root) {
   return { resolved, missing };
 }
 
+function candidateRoots(explicitRoot) {
+  if (explicitRoot) return [path.resolve(explicitRoot)];
+  const home = os.homedir();
+  const values = [
+    process.cwd(),
+    path.join(home, "Developer"),
+    path.join(home, "Code"),
+    path.join(home, "Projects"),
+    home
+  ];
+  return [...new Set(values.map((value) => path.resolve(value)))];
+}
+
+function resolveRepoPathsFromCandidates(repoNames, explicitRoot) {
+  const candidates = candidateRoots(explicitRoot);
+  let best = { resolved: [], missing: repoNames, root: candidates[0] };
+  for (const root of candidates) {
+    const result = resolveRepoPaths(repoNames, root);
+    if (result.resolved.length > best.resolved.length) {
+      best = { ...result, root };
+    }
+    if (result.resolved.length === repoNames.length) return { ...result, root };
+  }
+  return best;
+}
+
 async function autodetectAuthorIdentities(repoPaths, login) {
   const pairs = new Map();
   const loginLower = login.toLowerCase();
@@ -295,6 +328,15 @@ async function autodetectAuthorIdentities(repoPaths, login) {
   const emails = [...new Set([...pairs.values()].map((item) => item.email))].sort();
   const names = [...new Set([...pairs.values()].map((item) => item.name))].sort();
   return { emails, names };
+}
+
+async function gitConfigIdentity() {
+  const email = (await tryRunText("git", ["config", "--global", "user.email"])).trim();
+  const name = (await tryRunText("git", ["config", "--global", "user.name"])).trim();
+  return {
+    emails: email ? [email] : [],
+    names: name ? [name] : []
+  };
 }
 
 function escapeRegex(value) {
@@ -650,13 +692,18 @@ function renderChart(series, login, startDate, endDate, bucket, outputPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const { startDate, endDate } = computeDates(args);
-  const root = path.resolve(args.root);
   const output = path.resolve(args.output);
   const jsonOutput = path.resolve(args.jsonOutput);
 
   const login = await getLogin();
   const repoNames = await getRepositories(login);
-  const { resolved: repoPaths, missing } = resolveRepoPaths(repoNames, root);
+  const { resolved: repoPaths, missing, root } = resolveRepoPathsFromCandidates(repoNames, args.root);
+
+  if (!repoPaths.length) {
+    throw new Error(
+      `could not find any locally cloned contributed repos under ${root}; pass --root to the directory that contains your repo clones`
+    );
+  }
 
   let authorEmails = [...new Set(args.authorEmail)];
   let authorNames = [...new Set(args.authorName)];
@@ -665,6 +712,12 @@ async function main() {
     const detected = await autodetectAuthorIdentities(repoPaths, login);
     authorEmails = detected.emails;
     authorNames = detected.names;
+  }
+
+  if (!authorEmails.length && !authorNames.length) {
+    const detected = await gitConfigIdentity();
+    authorEmails = detected.emails;
+    authorNames = [...new Set([login, ...detected.names])];
   }
 
   if (!authorEmails.length && !authorNames.length) {
@@ -693,6 +746,7 @@ async function main() {
         bucket: args.bucket,
         author_emails: authorEmails,
         author_names: authorNames,
+        root_used: root,
         local_repositories_used: repoPaths.map(([name]) => name),
         missing_repositories: missing,
         total_lines_changed: values.reduce((sum, value) => sum + value, 0),

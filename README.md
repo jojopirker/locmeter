@@ -44,6 +44,7 @@ Common options:
 - default `--to`: today
 - default `--from`: one year before `--to`
 - default author identity: auto-detected from your current `gh` login
+- default repo root: current directory, then common roots like `~/Developer`, `~/Code`, `~/Projects`
 - `--from YYYY-MM-DD`
 - `--to YYYY-MM-DD`
 - `--days N`
