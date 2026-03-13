@@ -1,8 +1,16 @@
 # locmeter
 
+[![npm version](https://img.shields.io/npm/v/locmeter.svg)](https://www.npmjs.com/package/locmeter)
+
 `locmeter` is a dependency-free Node CLI that scans your locally cloned GitHub contribution repos, aggregates added and deleted lines by day, week, or month, and renders a PNG chart.
 
 Repository: `jojopirker/locmeter`
+
+```bash
+npx locmeter
+```
+
+![Example locmeter output](./examples/jojo-weekly.png)
 
 ## Requirements
 
@@ -16,6 +24,12 @@ Repository: `jojopirker/locmeter`
 
 ```bash
 locmeter
+```
+
+Or without installing globally:
+
+```bash
+npx locmeter
 ```
 
 ## Install
@@ -66,8 +80,6 @@ That example produced:
 - bucket: `week`
 - total lines changed: `1,059,347`
 - peak week: `207,431`
-
-![Example locmeter output](./examples/jojo-weekly.png)
 
 The CLI prints the generated PNG path and JSON path on success.
 
