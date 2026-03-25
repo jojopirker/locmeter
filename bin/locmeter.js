@@ -13,9 +13,31 @@ const BG = [247, 248, 250];
 const PLOT_BG = [255, 255, 255];
 const GRID = [226, 232, 240];
 const AXIS = [100, 116, 139];
-const LINE = [15, 23, 42];
-const FILL = [191, 219, 254];
+const SERIES_STYLES = {
+  sum: {
+    line: [15, 23, 42],
+    fill: [191, 219, 254],
+    legend: "SUM"
+  },
+  added: {
+    line: [22, 163, 74],
+    fill: [187, 247, 208],
+    legend: "ADDED"
+  },
+  deleted: {
+    line: [220, 38, 38],
+    fill: [254, 202, 202],
+    legend: "DELETED"
+  }
+};
 const TEXT = [30, 41, 59];
+const MODES = {
+  sum: ["sum"],
+  added: ["added"],
+  deleted: ["deleted"],
+  "added/deleted": ["added", "deleted"],
+  "added/deleted/sum": ["added", "deleted", "sum"]
+};
 
 const FONT = {
   "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
@@ -108,6 +130,7 @@ function logStep(message) {
 function parseArgs(argv) {
   const args = {
     bucket: "week",
+    mode: "sum",
     searchDepth: 3,
     authorEmail: [],
     authorName: [],
@@ -129,6 +152,7 @@ function parseArgs(argv) {
     else if (arg === "--from") args.fromDate = next();
     else if (arg === "--to") args.toDate = next();
     else if (arg === "--bucket") args.bucket = next();
+    else if (arg === "--mode") args.mode = next();
     else if (arg === "--root") args.root = next();
     else if (arg === "--search-depth") args.searchDepth = Number(next());
     else if (arg === "--author-email") args.authorEmail.push(next());
@@ -145,6 +169,9 @@ function parseArgs(argv) {
 
   if (!["day", "week", "month"].includes(args.bucket)) {
     throw new Error("--bucket must be day, week, or month");
+  }
+  if (!Object.hasOwn(MODES, args.mode)) {
+    throw new Error(`--mode must be one of ${Object.keys(MODES).join(", ")}`);
   }
   if (args.days !== undefined && (!Number.isInteger(args.days) || args.days <= 0)) {
     throw new Error("--days must be a positive integer");
@@ -163,6 +190,7 @@ function printHelp() {
       "",
       "Defaults:",
       "  --bucket week",
+      "  --mode sum",
       "  --to today",
       "  --from one year before --to",
       "  --author-email/--author-name auto-detected from current gh login",
@@ -173,6 +201,7 @@ function printHelp() {
       "  --from YYYY-MM-DD",
       "  --to YYYY-MM-DD",
       "  --bucket day|week|month",
+      "  --mode sum|added|deleted|added/deleted|added/deleted/sum",
       "  --root /path/to/repos",
       "  --search-depth N",
       "  --author-email you@example.com",
@@ -497,16 +526,30 @@ async function aggregate(repoPaths, startDate, endDate, bucket, authorEmails, au
   const rawDaily = new Map();
   const seen = new Set();
 
+  function ensureTotals(store, key) {
+    if (!store.has(key)) {
+      store.set(key, { added: 0, deleted: 0, sum: 0 });
+    }
+    return store.get(key);
+  }
+
   for (const output of outputs) {
     let current = null;
-    let runningLines = 0;
+    let runningTotals = { added: 0, deleted: 0, sum: 0 };
 
     for (const line of output.split("\n")) {
       if (line.startsWith("COMMIT\t")) {
         if (current && !seen.has(current.sha)) {
           seen.add(current.sha);
-          rawDaily.set(current.date, (rawDaily.get(current.date) || 0) + runningLines);
-          bucketTotals.set(current.bucket, (bucketTotals.get(current.bucket) || 0) + runningLines);
+          const daily = ensureTotals(rawDaily, current.date);
+          daily.added += runningTotals.added;
+          daily.deleted += runningTotals.deleted;
+          daily.sum += runningTotals.sum;
+
+          const bucketTotal = ensureTotals(bucketTotals, current.bucket);
+          bucketTotal.added += runningTotals.added;
+          bucketTotal.deleted += runningTotals.deleted;
+          bucketTotal.sum += runningTotals.sum;
         }
         const [, sha, dateStr] = line.split("\t", 5);
         const commitDate = parseDate(dateStr);
@@ -515,7 +558,7 @@ async function aggregate(repoPaths, startDate, endDate, bucket, authorEmails, au
           date: dateStr,
           bucket: dateIso(bucketStart(commitDate, bucket))
         };
-        runningLines = 0;
+        runningTotals = { added: 0, deleted: 0, sum: 0 };
         continue;
       }
 
@@ -523,14 +566,29 @@ async function aggregate(repoPaths, startDate, endDate, bucket, authorEmails, au
       const parts = line.split("\t");
       if (parts.length !== 3) continue;
       const [added, deleted] = parts;
-      if (added !== "-") runningLines += Number(added);
-      if (deleted !== "-") runningLines += Number(deleted);
+      if (added !== "-") {
+        const addedValue = Number(added);
+        runningTotals.added += addedValue;
+        runningTotals.sum += addedValue;
+      }
+      if (deleted !== "-") {
+        const deletedValue = Number(deleted);
+        runningTotals.deleted += deletedValue;
+        runningTotals.sum += deletedValue;
+      }
     }
 
     if (current && !seen.has(current.sha)) {
       seen.add(current.sha);
-      rawDaily.set(current.date, (rawDaily.get(current.date) || 0) + runningLines);
-      bucketTotals.set(current.bucket, (bucketTotals.get(current.bucket) || 0) + runningLines);
+      const daily = ensureTotals(rawDaily, current.date);
+      daily.added += runningTotals.added;
+      daily.deleted += runningTotals.deleted;
+      daily.sum += runningTotals.sum;
+
+      const bucketTotal = ensureTotals(bucketTotals, current.bucket);
+      bucketTotal.added += runningTotals.added;
+      bucketTotal.deleted += runningTotals.deleted;
+      bucketTotal.sum += runningTotals.sum;
     }
   }
 
@@ -539,15 +597,29 @@ async function aggregate(repoPaths, startDate, endDate, bucket, authorEmails, au
   const last = bucketStart(endDate, bucket);
   while (cursor <= last) {
     const key = dateIso(cursor);
-    ordered.set(key, bucketTotals.get(key) || 0);
+    ordered.set(key, bucketTotals.get(key) || { added: 0, deleted: 0, sum: 0 });
     if (bucket === "day") cursor = addDays(cursor, 1);
     else if (bucket === "week") cursor = addDays(cursor, 7);
     else cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
   }
 
+  const bucketed = { added: {}, deleted: {}, sum: {} };
+  for (const [date, totals] of ordered.entries()) {
+    bucketed.added[date] = totals.added;
+    bucketed.deleted[date] = totals.deleted;
+    bucketed.sum[date] = totals.sum;
+  }
+
+  const daily = { added: {}, deleted: {}, sum: {} };
+  for (const [date, totals] of [...rawDaily.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    daily.added[date] = totals.added;
+    daily.deleted[date] = totals.deleted;
+    daily.sum[date] = totals.sum;
+  }
+
   return {
-    series: Object.fromEntries(ordered),
-    rawDaily: Object.fromEntries([...rawDaily.entries()].sort(([a], [b]) => a.localeCompare(b)))
+    bucketed,
+    daily
   };
 }
 
@@ -732,9 +804,34 @@ function xLabel(date, bucket) {
   return `${month} ${date.getUTCDate()}`;
 }
 
-function renderChart(series, login, startDate, endDate, bucket, outputPath) {
-  const dates = Object.keys(series).sort();
-  const values = dates.map((date) => series[date]);
+function modeLabel(mode) {
+  return mode.replace(/\//g, " + ");
+}
+
+function sumValues(values) {
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function renderLegend(canvas, plotRight, top, seriesKeys) {
+  let cursorX = plotRight;
+  for (let i = seriesKeys.length - 1; i >= 0; i -= 1) {
+    const key = seriesKeys[i];
+    const style = SERIES_STYLES[key];
+    const label = style.legend;
+    const labelWidth = textWidth(label, 2);
+    const itemWidth = 24 + 10 + labelWidth;
+    cursorX -= itemWidth;
+    drawLine(canvas, cursorX, top, cursorX + 20, top, style.line, 4);
+    drawText(canvas, cursorX + 30, top - 8, label, TEXT, 2);
+    cursorX -= 28;
+  }
+}
+
+function renderChart(seriesByKey, mode, login, startDate, endDate, bucket, outputPath) {
+  const seriesKeys = MODES[mode];
+  const primarySeries = seriesByKey[seriesKeys[0]];
+  const dates = Object.keys(primarySeries).sort();
+  const valuesByKey = Object.fromEntries(seriesKeys.map((key) => [key, dates.map((date) => seriesByKey[key][date])]));
   const width = 1800;
   const height = 980;
   const left = 130;
@@ -747,7 +844,8 @@ function renderChart(series, login, startDate, endDate, bucket, outputPath) {
   const plotBottom = height - bottom;
   const plotWidth = plotRight - plotLeft;
   const plotHeight = plotBottom - plotTop;
-  const maxValue = values.length ? Math.max(...values) : 0;
+  const allValues = seriesKeys.flatMap((key) => valuesByKey[key]);
+  const maxValue = allValues.length ? Math.max(...allValues) : 0;
   const upper = niceUpperBound(Math.max(maxValue, 10));
 
   const canvas = createCanvas(width, height, BG);
@@ -763,15 +861,18 @@ function renderChart(series, login, startDate, endDate, bucket, outputPath) {
   drawLine(canvas, plotLeft, plotBottom, plotRight, plotBottom, AXIS, 2);
   drawLine(canvas, plotLeft, plotTop, plotLeft, plotBottom, AXIS, 2);
 
-  const points = values.map((value, idx) => {
-    const x = plotLeft + Math.floor((idx * plotWidth) / Math.max(1, values.length - 1));
-    const y = plotBottom - Math.floor((value / upper) * plotHeight);
-    return [x, y];
-  });
-  if (points.length) {
-    drawPolyFill(canvas, points, plotBottom, FILL);
+  for (const key of seriesKeys) {
+    const style = SERIES_STYLES[key];
+    const points = valuesByKey[key].map((value, idx) => {
+      const x = plotLeft + Math.floor((idx * plotWidth) / Math.max(1, dates.length - 1));
+      const y = plotBottom - Math.floor((value / upper) * plotHeight);
+      return [x, y];
+    });
+    if (points.length && seriesKeys.length === 1) {
+      drawPolyFill(canvas, points, plotBottom, style.fill);
+    }
     for (let i = 0; i < points.length - 1; i += 1) {
-      drawLine(canvas, points[i][0], points[i][1], points[i + 1][0], points[i + 1][1], LINE, 3);
+      drawLine(canvas, points[i][0], points[i][1], points[i + 1][0], points[i + 1][1], style.line, 3);
     }
   }
 
@@ -783,7 +884,7 @@ function renderChart(series, login, startDate, endDate, bucket, outputPath) {
 
   let drawnUntil = -1;
   for (const idx of tickIndexes) {
-    const x = plotLeft + Math.floor((idx * plotWidth) / Math.max(1, values.length - 1));
+    const x = plotLeft + Math.floor((idx * plotWidth) / Math.max(1, dates.length - 1));
     const label = xLabel(parseDate(dates[idx]), bucket);
     const widthPx = textWidth(label, 2);
     const labelX = Math.max(plotLeft, Math.min(x - Math.floor(widthPx / 2), plotRight - widthPx));
@@ -793,16 +894,16 @@ function renderChart(series, login, startDate, endDate, bucket, outputPath) {
     drawnUntil = labelX + widthPx;
   }
 
-  drawText(canvas, 24, 24, `${login} lines per ${bucket}`, TEXT, 5);
+  drawText(canvas, 24, 24, `${login} ${modeLabel(mode)} per ${bucket}`, TEXT, 5);
   drawText(canvas, 24, 74, `${dateIso(startDate)} to ${dateIso(endDate)}`, AXIS, 3);
-  drawText(
-    canvas,
-    24,
-    104,
-    `Total: ${formatGrouped(values.reduce((sum, value) => sum + value, 0))} Peak: ${formatGrouped(maxValue)}`,
-    AXIS,
-    3
-  );
+  const summary = seriesKeys
+    .map((key) => {
+      const values = valuesByKey[key];
+      return `${SERIES_STYLES[key].legend}: ${formatGrouped(sumValues(values))}/${formatGrouped(values.length ? Math.max(...values) : 0)}`;
+    })
+    .join("  ");
+  drawText(canvas, 24, 104, `Total/Peak: ${summary}`, AXIS, 3);
+  if (seriesKeys.length > 1) renderLegend(canvas, plotRight, 56, seriesKeys);
 
   savePng(canvas, outputPath);
 }
@@ -849,7 +950,7 @@ async function main() {
   }
 
   logStep(`Fetching commits from ${repoPaths.length} repos...`);
-  const { series, rawDaily } = await aggregate(
+  const { bucketed, daily } = await aggregate(
     repoPaths,
     startDate,
     endDate,
@@ -858,10 +959,14 @@ async function main() {
     authorNames
   );
 
-  logStep(`Crunching numbers for ${args.bucket} buckets from ${dateIso(startDate)} to ${dateIso(endDate)}...`);
-  renderChart(series, login, startDate, endDate, args.bucket, output);
+  logStep(
+    `Crunching numbers for ${args.bucket} buckets from ${dateIso(startDate)} to ${dateIso(endDate)} in ${args.mode} mode...`
+  );
+  renderChart(bucketed, args.mode, login, startDate, endDate, args.bucket, output);
 
-  const values = Object.values(series);
+  const values = Object.values(bucketed.sum);
+  const addedValues = Object.values(bucketed.added);
+  const deletedValues = Object.values(bucketed.deleted);
   fs.writeFileSync(
     jsonOutput,
     JSON.stringify(
@@ -870,16 +975,27 @@ async function main() {
         from: dateIso(startDate),
         to: dateIso(endDate),
         bucket: args.bucket,
+        mode: args.mode,
         author_emails: authorEmails,
         author_names: authorNames,
         root_used: root,
         searched_roots: searchedRoots,
         local_repositories_used: repoPaths.map(([name]) => name),
         missing_repositories: missing,
+        total_lines_added: sumValues(addedValues),
+        peak_lines_added: addedValues.length ? Math.max(...addedValues) : 0,
+        total_lines_deleted: sumValues(deletedValues),
+        peak_lines_deleted: deletedValues.length ? Math.max(...deletedValues) : 0,
         total_lines_changed: values.reduce((sum, value) => sum + value, 0),
         peak_lines_changed: values.length ? Math.max(...values) : 0,
-        bucketed_lines_changed: series,
-        daily_lines_changed: rawDaily
+        bucketed_lines_added: bucketed.added,
+        bucketed_lines_deleted: bucketed.deleted,
+        bucketed_lines_changed: bucketed.sum,
+        bucketed_series: bucketed,
+        daily_lines_added: daily.added,
+        daily_lines_deleted: daily.deleted,
+        daily_lines_changed: daily.sum,
+        daily_series: daily
       },
       null,
       2

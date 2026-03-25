@@ -4,3 +4,4 @@ node_modules/
 !package.json
 !examples/
 !examples/jojo-weekly.png
+!examples/jojo-weekly-added-deleted-sum.png

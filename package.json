@@ -1,6 +1,6 @@
 {
   "name": "locmeter",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Render a PNG chart of lines changed over time from your GitHub contribution repos.",
   "license": "MIT",
   "preferGlobal": true,
@@ -17,7 +17,8 @@
   "files": [
     "bin",
     "README.md",
-    "examples/jojo-weekly.png"
+    "examples/jojo-weekly.png",
+    "examples/jojo-weekly-added-deleted-sum.png"
   ],
   "keywords": [
     "cli",

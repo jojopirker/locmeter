@@ -12,6 +12,8 @@ npx locmeter
 
 ![Example locmeter output](./examples/jojo-weekly.png)
 
+![Example locmeter added/deleted/sum output](./examples/jojo-weekly-added-deleted-sum.png)
+
 ## Requirements
 
 - Node.js 18+
@@ -41,6 +43,7 @@ npm install -g locmeter
 Common options:
 
 - default bucket: `week`
+- default mode: `sum`
 - default `--to`: today
 - default `--from`: one year before `--to`
 - default author identity: auto-detected from your current `gh` login
@@ -50,6 +53,7 @@ Common options:
 - `--to YYYY-MM-DD`
 - `--days N`
 - `--bucket day|week|month`
+- `--mode sum|added|deleted|added/deleted|added/deleted/sum`
 - `--root /path/to/repos`
 - `--search-depth N`
 - `--author-email you@example.com`
@@ -57,37 +61,28 @@ Common options:
 - `--output chart.png`
 - `--json-output data.json`
 
+Modes:
+
+- `sum`
+- `added`
+- `deleted`
+- `added/deleted`
+- `added/deleted/sum`
+
 Example:
 
 ```bash
 locmeter \
-  --from 2025-01-01 \
-  --to 2025-12-31 \
-  --bucket week
-```
-
-Real example generated from your usage:
-
-```bash
-locmeter \
   --root ~/Developer \
-  --output examples/jojo-weekly.png \
-  --json-output examples/jojo-weekly.json
+  --bucket week \
+  --mode added/deleted/sum \
+  --output examples/jojo-weekly-added-deleted-sum.png \
+  --json-output examples/jojo-weekly-added-deleted-sum.json
 ```
-
-That example produced:
-
-- `examples/jojo-weekly.png`
-- `examples/jojo-weekly.json`
-- date range: `2025-03-13` to `2026-03-13`
-- bucket: `week`
-- total lines changed: `1,059,347`
-- peak week: `207,431`
 
 The CLI prints the generated PNG path and JSON path on success.
 
 ## Notes
 
 - `locmeter` is intended for global CLI usage.
-- The npm package metadata is set to `MIT`; add the full MIT license text in a `LICENSE` file before publishing.
-- The published package only ships the example PNG, not the example JSON.
+- JSON output includes separate `added`, `deleted`, and `sum` series.
