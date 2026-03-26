@@ -1,3 +1,5 @@
+![Example locmeter output](./examples/jojo-weekly.png)
+
 # locmeter
 
 [![npm version](https://img.shields.io/npm/v/locmeter.svg)](https://www.npmjs.com/package/locmeter)
@@ -9,8 +11,6 @@ Repository: `jojopirker/locmeter`
 ```bash
 npx locmeter
 ```
-
-![Example locmeter output](./examples/jojo-weekly.png)
 
 ![Example locmeter added/deleted/sum output](./examples/jojo-weekly-added-deleted-sum.png)
 
